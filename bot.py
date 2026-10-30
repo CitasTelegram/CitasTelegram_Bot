@@ -6,6 +6,7 @@ import asyncio
 from datetime import datetime
 from http.server import HTTPServer, BaseHTTPRequestHandler
 import psycopg2
+import requests
 from telegram import Update, InlineKeyboardButton, InlineKeyboardMarkup
 from telegram.ext import (
     Application,
@@ -45,7 +46,6 @@ def init_db():
         try:
             conn = psycopg2.connect(DATABASE_URL, connect_timeout=10)
             cur = conn.cursor()
-            # Tabla de Perfiles de Citas
             cur.execute("""
                 CREATE TABLE IF NOT EXISTS perfiles_citas (
                     chat_id BIGINT PRIMARY KEY,
@@ -54,15 +54,14 @@ def init_db():
                     ciudad TEXT,
                     descripcion TEXT,
                     estado_civil TEXT DEFAULT 'Soltero/a',
-                    busca_genero TEXT DEFAULT 'ambos', -- 'hombre', 'mujer', 'ambos'
-                    genero_propio TEXT DEFAULT 'otro', -- 'hombre', 'mujer', 'otro'
-                    fotos TEXT[] DEFAULT ARRAY[]::TEXT[], -- hasta 6 fotos (file_ids de Telegram)
+                    busca_genero TEXT DEFAULT 'ambos',
+                    genero_propio TEXT DEFAULT 'otro',
+                    fotos TEXT[] DEFAULT ARRAY[]::TEXT[],
                     visible BOOLEAN DEFAULT TRUE,
                     online BOOLEAN DEFAULT TRUE,
                     creado_en TIMESTAMP DEFAULT NOW()
                 );
             """)
-            # Tabla de Likes
             cur.execute("""
                 CREATE TABLE IF NOT EXISTS likes_citas (
                     id SERIAL PRIMARY KEY,
@@ -72,7 +71,6 @@ def init_db():
                     UNIQUE(de_chat_id, para_chat_id)
                 );
             """)
-            # Tabla de Conexiones (Match mutuo)
             cur.execute("""
                 CREATE TABLE IF NOT EXISTS conexiones_citas (
                     id SERIAL PRIMARY KEY,
@@ -81,7 +79,6 @@ def init_db():
                     creado_en TIMESTAMP DEFAULT NOW()
                 );
             """)
-            # Tabla de Mensajes Internos
             cur.execute("""
                 CREATE TABLE IF NOT EXISTS mensajes_citas (
                     id SERIAL PRIMARY KEY,
@@ -117,7 +114,7 @@ def obtener_perfil(chat_id):
         logger.error(f"Error obteniendo perfil: {e}")
         return None
 
-# --- 2. SERVIDOR WEB ANTI-SLEEP PARA RENDER ---
+# --- 2. SISTEMA ANTI-SLEEP (RENDER + SUPABASE KEEP-ALIVE) ---
 class HealthCheckHandler(BaseHTTPRequestHandler):
     def do_GET(self):
         self.send_response(200)
@@ -138,8 +135,16 @@ def keep_alive_ping():
         time.sleep(300)
         if url:
             try:
-                import requests
                 requests.get(url, timeout=10)
+            except Exception:
+                pass
+        if DATABASE_URL:
+            try:
+                conn = psycopg2.connect(DATABASE_URL, connect_timeout=5)
+                cur = conn.cursor()
+                cur.execute("SELECT 1;")
+                cur.close()
+                conn.close()
             except Exception:
                 pass
 
